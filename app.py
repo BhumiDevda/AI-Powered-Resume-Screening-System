@@ -2,16 +2,18 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import sqlite3
-from sentence_transformers import SentenceTransformer, util
 from utils import extract_text, extract_skills, calculate_skill_match
 from database import init_db
+from interview_utils import generate_interview_questions
 
 app = Flask(__name__)
 CORS(app)
 
 app.config['UPLOAD_FOLDER'] = 'uploads/'
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB limit
-model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Remove the sentence transformer model for now to avoid network issues
+# model = SentenceTransformer('all-MiniLM-L6-v2')
 
 @app.route("/", methods=['GET', 'POST'])
 def match_resumes():
@@ -61,9 +63,12 @@ def match_resumes():
 
                     skill_match_score, matched_skills = calculate_skill_match(resume_skills, job_skills)
 
-                    job_embedding = model.encode(job_description, convert_to_tensor=True)
-                    resume_embedding = model.encode(resume_text, convert_to_tensor=True)
-                    similarity = util.pytorch_cos_sim(job_embedding, resume_embedding)[0].item()
+                    # Simplified similarity calculation without sentence transformers
+                    # Use basic text matching as fallback
+                    job_words = set(job_description.lower().split())
+                    resume_words = set(resume_text.lower().split())
+                    common_words = job_words.intersection(resume_words)
+                    similarity = len(common_words) / max(len(job_words), len(resume_words)) if job_words or resume_words else 0
 
                     final_score = (similarity * 0.6) + (skill_match_score * 0.4)
                     fit_label = "Fit" if final_score > 0.4 else "Not Fit"
@@ -103,6 +108,131 @@ def match_resumes():
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return jsonify({"message": "Failed to process the request"}), 500
+
+@app.route("/interview-practice", methods=['POST'])
+def interview_practice():
+    """Generate interview questions based on resume content."""
+    try:
+        # Get resume text from request
+        resume_text = request.form.get('resume_text', '').strip()
+        
+        if not resume_text:
+            return jsonify({"error": "Please provide resume text."}), 400
+        
+        # Connect to database
+        conn = sqlite3.connect("resume_matcher.db")
+        cursor = conn.cursor()
+        
+        try:
+            # Create interview session
+            cursor.execute("INSERT INTO interview_sessions (resume_text) VALUES (?)", (resume_text,))
+            session_id = cursor.lastrowid
+            
+            # Generate interview questions
+            questions = generate_interview_questions(resume_text)
+            
+            # Store questions in database
+            for question_data in questions:
+                cursor.execute("""
+                    INSERT INTO interview_questions (session_id, question, question_type, skill_area) 
+                    VALUES (?, ?, ?, ?)
+                """, (session_id, question_data['question'], question_data['type'], question_data['skill_area']))
+            
+            conn.commit()
+            
+            return jsonify({
+                "session_id": session_id,
+                "questions": questions,
+                "total_questions": len(questions)
+            })
+            
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return jsonify({"error": "Database error occurred."}), 500
+        except Exception as e:
+            print(f"Error generating questions: {e}")
+            return jsonify({"error": "Failed to generate interview questions."}), 500
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return jsonify({"error": "Failed to process the request"}), 500
+
+@app.route("/interview-sessions", methods=['GET'])
+def get_interview_sessions():
+    """Get all interview sessions."""
+    try:
+        conn = sqlite3.connect("resume_matcher.db")
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT s.id, s.created_at, COUNT(q.id) as question_count
+            FROM interview_sessions s
+            LEFT JOIN interview_questions q ON s.id = q.session_id
+            GROUP BY s.id, s.created_at
+            ORDER BY s.created_at DESC
+        """)
+        
+        sessions = []
+        for row in cursor.fetchall():
+            sessions.append({
+                "id": row[0],
+                "created_at": row[1],
+                "question_count": row[2]
+            })
+        
+        return jsonify({"sessions": sessions})
+        
+    except Exception as e:
+        print(f"Error fetching sessions: {e}")
+        return jsonify({"error": "Failed to fetch sessions"}), 500
+    finally:
+        conn.close()
+
+@app.route("/interview-session/<int:session_id>", methods=['GET'])
+def get_interview_session(session_id):
+    """Get specific interview session with questions."""
+    try:
+        conn = sqlite3.connect("resume_matcher.db")
+        cursor = conn.cursor()
+        
+        # Get session info
+        cursor.execute("SELECT id, created_at FROM interview_sessions WHERE id = ?", (session_id,))
+        session_row = cursor.fetchone()
+        
+        if not session_row:
+            return jsonify({"error": "Session not found"}), 404
+        
+        # Get questions for this session
+        cursor.execute("""
+            SELECT question, question_type, skill_area 
+            FROM interview_questions 
+            WHERE session_id = ?
+            ORDER BY id
+        """, (session_id,))
+        
+        questions = []
+        for row in cursor.fetchall():
+            questions.append({
+                "question": row[0],
+                "type": row[1],
+                "skill_area": row[2]
+            })
+        
+        return jsonify({
+            "session": {
+                "id": session_row[0],
+                "created_at": session_row[1]
+            },
+            "questions": questions
+        })
+        
+    except Exception as e:
+        print(f"Error fetching session: {e}")
+        return jsonify({"error": "Failed to fetch session"}), 500
+    finally:
+        conn.close()
 
 @app.route("/download/<filename>")
 def download_resume(filename):
