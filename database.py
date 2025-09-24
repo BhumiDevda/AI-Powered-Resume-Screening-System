@@ -40,6 +40,25 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS interview_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            resume_text TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS interview_questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            question TEXT NOT NULL,
+            question_type TEXT NOT NULL,
+            skill_area TEXT,
+            FOREIGN KEY (session_id) REFERENCES interview_sessions(id)
+        )
+    """)
+
     conn.commit()
     conn.close()
     print("Database initialized successfully!")

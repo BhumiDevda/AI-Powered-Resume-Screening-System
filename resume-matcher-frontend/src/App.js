@@ -2,10 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
-import { Route, Routes } from "react-router-dom";  
+import { Route, Routes, Link, useLocation } from "react-router-dom";  
 import Dashboard from "./Dashboard";  
+import InterviewPractice from "./InterviewPractice";  
 
 function App() {
+    const location = useLocation();
     const [jobDescription, setJobDescription] = useState('');
     const [selectedFiles, setSelectedFiles] = useState([]);
     const [results, setResults] = useState([]);
@@ -121,6 +123,33 @@ function App() {
     };
     return (
         <div className="container">
+            {/* Navigation Bar */}
+            <nav className="navbar navbar-expand-lg navbar-light bg-light mb-4 rounded">
+                <div className="container-fluid">
+                    <Link className="navbar-brand" to="/">🎯 Resume Matcher</Link>
+                    <div className="navbar-nav">
+                        <Link 
+                            className={`nav-link ${location.pathname === '/' ? 'active' : ''}`} 
+                            to="/"
+                        >
+                            📄 Resume Screening
+                        </Link>
+                        <Link 
+                            className={`nav-link ${location.pathname === '/interview-practice' ? 'active' : ''}`} 
+                            to="/interview-practice"
+                        >
+                            💼 Interview Practice
+                        </Link>
+                        <Link 
+                            className={`nav-link ${location.pathname === '/dashboard' ? 'active' : ''}`} 
+                            to="/dashboard"
+                        >
+                            📊 Dashboard
+                        </Link>
+                    </div>
+                </div>
+            </nav>
+
             <Routes>  
                 <Route path="/" element={
                     <>
@@ -250,6 +279,7 @@ function App() {
                         </div>
                     </>
                 } />
+                <Route path="/interview-practice" element={<InterviewPractice />} />
                 <Route path="/dashboard" element={<Dashboard />} />  
             </Routes>
         </div>
